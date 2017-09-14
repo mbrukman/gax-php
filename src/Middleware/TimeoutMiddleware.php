@@ -1,6 +1,6 @@
 <?php
 /*
- * Copyright 2016, Google Inc.
+ * Copyright 2017, Google Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,50 +29,40 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+namespace Google\GAX\Middleware;
 
-namespace Google\GAX\Testing;
-
-use Google\Rpc\Code;
+use InvalidArgumentException;
 
 /**
- * The MockUnaryCall class is used to mock out the \Grpc\UnaryCall class
- * (https://github.com/grpc/grpc/blob/master/src/php/lib/Grpc/UnaryCall.php)
- *
- * The MockUnaryCall object is constructed with a response object, an optional deserialize
- * method, and an optional status. The response object and status are returned immediately from the
- * wait() method.
- */
-class MockUnaryCall
+* Middleware for adding timeouts
+*/
+class TimeoutMiddleware
 {
-    use SerializationTrait;
+    const TRANSPORT_METHOD_PARAM_COUNT = 2;
+    const TRANSPORT_METHOD_OPTIONS_INDEX = 1;
 
-    private $response;
-    private $deserialize;
-    private $status;
+    /** @var callable */
+    private $nextHandler;
 
-    /**
-     * MockUnaryCall constructor.
-     * @param \Google\Protobuf\Internal\Message $response The response object.
-     * @param callable|null $deserialize An optional deserialize method for the response object.
-     * @param MockStatus|null $status An optional status object. If set to null, a status of OK is used.
-     */
-    public function __construct($response, $deserialize = null, $status = null)
+    /** @var int */
+    private $timeoutMillis;
+
+    public function __construct(callable $nextHandler, $timeoutMillis)
     {
-        $this->response = $response;
-        $this->deserialize = $deserialize;
-        if (is_null($status)) {
-            $status = new MockStatus(Code::OK);
-        }
-        $this->status = $status;
+        $this->nextHandler = $nextHandler;
+        $this->timeoutMillis = $timeoutMillis;
     }
 
-    /**
-     * Immediately return the preset response object and status.
-     * @return array The response object and status.
-     */
-    public function wait()
+    public function __invoke()
     {
-        $obj = $this->deserializeMessage($this->response, $this->deserialize);
-        return [$obj, $this->status];
+        $params = func_get_args();
+        if (count($params) != self::TRANSPORT_METHOD_PARAM_COUNT ||
+            !is_array($params[self::TRANSPORT_METHOD_OPTIONS_INDEX])
+        ) {
+            throw new InvalidArgumentException('Invalid parameter count or options argument not found.');
+        } else {
+            $params[self::TRANSPORT_METHOD_OPTIONS_INDEX]['timeoutMillis'] = $this->timeoutMillis;
+        }
+        return call_user_func_array($this->nextHandler, $params);
     }
 }

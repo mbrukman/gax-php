@@ -1,6 +1,6 @@
 <?php
 /*
- * Copyright 2016, Google Inc.
+ * Copyright 2017, Google Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,40 +29,34 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
 namespace Google\GAX\UnitTests\Mocks;
 
-use Google\GAX\Testing\MockStubTrait;
-use InvalidArgumentException;
-
-class MockClientStreamingStub
+trait SerializationTrait
 {
-    use MockStubTrait;
-
-    private $deserialize;
-
-    public function __construct($deserialize = null)
+    protected function deserializeMessage($message, $deserialize)
     {
-        $this->deserialize = $deserialize;
-    }
+        if ($message === null) {
+            return null;
+        }
 
-    /**
-     * @param mixed $responseObject
-     * @param $status
-     * @param callable $deserialize
-     * @return MockClientStreamingStub
-     */
-    public static function create($responseObject, $status = null, $deserialize = null)
-    {
-        $stub = new MockClientStreamingStub($deserialize);
-        $stub->addResponse($responseObject, $status);
-        return $stub;
-    }
+        if ($deserialize === null) {
+            return $message;
+        }
 
-    public function __call($name, $arguments)
-    {
-        list($metadata, $options) = $arguments;
-        $newArgs = [$name, $this->deserialize, $metadata, $options];
-        return call_user_func_array(array($this, '_clientStreamRequest'), $newArgs);
+        // Proto3 implementation
+        if (is_array($deserialize)) {
+            list($className, $deserializeFunc) = $deserialize;
+            $obj = new $className();
+            if (method_exists($obj, $deserializeFunc)) {
+                $obj->$deserializeFunc($message);
+            } else {
+                $obj->mergeFromString($message);
+            }
+
+            return $obj;
+        }
+
+        // Protobuf-PHP implementation
+        return call_user_func($deserialize, $message);
     }
 }

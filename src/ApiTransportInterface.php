@@ -1,6 +1,6 @@
 <?php
 /*
- * Copyright 2016, Google Inc.
+ * Copyright 2017, Google Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,39 +29,23 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+namespace Google\GAX;
 
-namespace Google\GAX\UnitTests\Mocks;
-
-class MockPageStreamingRequest
+interface ApiTransportInterface
 {
-    private $pageToken;
-    private $pageSize;
-
-    public static function createPageStreamingRequest($pageToken, $pageSize = null)
-    {
-        $request = new MockPageStreamingRequest();
-        $request->pageToken = $pageToken;
-        $request->pageSize = $pageSize;
-        return $request;
-    }
-
-    public function getPageToken()
-    {
-        return $this->pageToken;
-    }
-
-    public function getPageSize()
-    {
-        return $this->pageSize;
-    }
-
-    public function setPageSize($pageSize)
-    {
-        $this->pageSize = $pageSize;
-    }
-
-    public function setPageToken($pageToken)
-    {
-        return $this->pageToken = $pageToken;
-    }
+    /**
+     * @param string $methodName The method name to return a callable for.
+     * @param \Google\GAX\CallSettings $settings The call settings to use for this call.
+     * @param array $options {
+     *     Optional.
+     *     @type \Google\GAX\PageStreamingDescriptor $pageStreamingDescriptor
+     *           The descriptor used for page-streaming.
+     *     @type \Google\GAX\AgentHeaderDescriptor $headerDescriptor
+     *           The descriptor used for creating the GAPIC header.
+     * }
+     *
+     * @throws \Google\GAX\ValidationException
+     * @return callable
+     */
+    public function createApiCall($methodName, CallSettings $settings, $options = []);
 }

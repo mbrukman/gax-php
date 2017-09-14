@@ -30,28 +30,26 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-namespace Google\GAX\Testing;
+namespace Google\GAX\UnitTests\Mocks;
 
 use Google\GAX\ApiException;
+use Google\GAX\Testing\MockStatus;
 use Google\Rpc\Code;
 use Grpc;
 
 /**
- * The MockBidiStreamingCall class is used to mock out the \Grpc\BidiStreamingCall class
- * (https://github.com/grpc/grpc/blob/master/src/php/lib/Grpc/BidiStreamingCall.php)
+ * The MockServerStreamingCall class is used to mock out the \Grpc\ServerStreamingCall class
+ * (https://github.com/grpc/grpc/blob/master/src/php/lib/Grpc/ServerStreamingCall.php)
  */
-class MockBidiStreamingCall
+class MockServerStreamingCall extends \Grpc\ServerStreamingCall
 {
     use SerializationTrait;
 
     private $responses;
-    private $deserialize;
     private $status;
-    private $writesDone = false;
-    private $receivedWrites = [];
 
     /**
-     * MockBidiStreamingCall constructor.
+     * MockServerStreamingCall constructor.
      * @param mixed[] $responses A list of response objects.
      * @param callable|null $deserialize An optional deserialize method for the response object.
      * @param MockStatus|null $status An optional status object. If set to null, a status of OK is used.
@@ -66,25 +64,12 @@ class MockBidiStreamingCall
         $this->status = $status;
     }
 
-    public function read()
+    public function responses()
     {
-        if (count($this->responses) > 0) {
+        while (count($this->responses) > 0) {
             $resp = array_shift($this->responses);
-            if (is_null($resp)) {
-                // Null was added to the responses list to simulate a failed stream
-                // To ensure that getStatus can now be called, we clear the remaining
-                // responses and set writesDone to true
-                $this->responses = [];
-                $this->writesDone();
-                return null;
-            }
             $obj = $this->deserializeMessage($resp, $this->deserialize);
-            return $obj;
-        } elseif ($this->writesDone) {
-            return null;
-        } else {
-            throw new ApiException("No more responses to read, but closeWrite() not called - "
-                . "this would be blocking", Grpc\STATUS_INTERNAL);
+            yield $obj;
         }
     }
 
@@ -96,50 +81,6 @@ class MockBidiStreamingCall
                 Grpc\STATUS_INTERNAL
             );
         }
-        if (!$this->writesDone) {
-            throw new ApiException(
-                "Calls to getStatus() will block if closeWrite() not called",
-                Grpc\STATUS_INTERNAL
-            );
-        }
         return $this->status;
-    }
-
-    /**
-     * Save the request object, to be retrieved via getReceivedCalls()
-     * @param \Google\Protobuf\Internal\Message|mixed $request The request object
-     * @throws ApiException
-     */
-    public function write($request)
-    {
-        if ($this->writesDone) {
-            throw new ApiException("Cannot call write() after writesDone()", Grpc\STATUS_INTERNAL);
-        }
-        if (is_a($request, '\Google\Protobuf\Internal\Message')) {
-            $newRequest = new $request();
-            $newRequest->mergeFromString($request->serializeToString());
-            $request = $newRequest;
-        }
-        $this->receivedWrites[] = $request;
-    }
-
-    /**
-     * Set writesDone to true
-     */
-    public function writesDone()
-    {
-        $this->writesDone = true;
-    }
-
-    /**
-     * Return a list of calls made to write(), and clear $receivedFuncCalls.
-     *
-     * @return mixed[] An array of received requests
-     */
-    public function popReceivedCalls()
-    {
-        $receivedFuncCallsTemp = $this->receivedWrites;
-        $this->receivedWrites = [];
-        return $receivedFuncCallsTemp;
     }
 }

@@ -1,6 +1,6 @@
 <?php
 /*
- * Copyright 2016, Google Inc.
+ * Copyright 2017, Google Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,15 +29,33 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+namespace Google\GAX\Middleware;
 
-namespace Google\GAX\UnitTests\Mocks;
+use Google\GAX\PagedListResponse;
 
-class MockContext
+/**
+* Middleware that adds page streaming functionality
+*/
+class PageStreamingMiddleware
 {
-    public $service_url;
+    /** @var callable */
+    private $nextHandler;
 
-    public function __construct($service_url)
+    /** @var array */
+    private $pageStreamingDescriptor;
+
+    public function __construct(callable $nextHandler, $pageStreamingDescriptor)
     {
-        $this->service_url = $service_url;
+        $this->nextHandler = $nextHandler;
+        $this->pageStreamingDescriptor = $pageStreamingDescriptor;
+    }
+
+    public function __invoke()
+    {
+        return new PagedListResponse(
+            func_get_args(),
+            $this->nextHandler,
+            $this->pageStreamingDescriptor
+        );
     }
 }

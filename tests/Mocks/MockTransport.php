@@ -32,61 +32,52 @@
 
 namespace Google\GAX\UnitTests\Mocks;
 
-use Google\GAX\Testing\MockStubTrait;
-use Google\GAX\Testing\MockUnaryCall;
+use Google\GAX\ApiException;
+use Google\GAX\ApiTransportInterface;
+use Google\GAX\CallSettings;
+use Google\GAX\CallStackTrait;
 use Google\GAX\Testing\ReceivedRequest;
-use Google\GAX\ValidationException;
-use InvalidArgumentException;
-use UnderflowException;
 
-class MockStub
+class MockTransport implements ApiTransportInterface
 {
+    use CallStackTrait;
     use MockStubTrait;
 
-    private $deserialize;
-
-    public function __construct($deserialize = null)
-    {
-        $this->deserialize = $deserialize;
-    }
-
     /**
-     * @param mixed $responseObject
-     * @param $status
-     * @return MockStub
+     * Creates an API request
+     * @return callable
      */
-    public static function create($responseObject, $status = null)
+    public function createApiCall($method, CallSettings $settings, $options = [])
     {
-        $stub = new MockStub();
-        $stub->addResponse($responseObject, $status);
-        return $stub;
-    }
-
-    /**
-     * Creates a sequence such that the responses are returned in order.
-     * @param mixed[] $sequence
-     * @param callable $deserialize
-     * @return MockStub
-     */
-    public static function createWithResponseSequence($sequence, $deserialize = null)
-    {
-        $stub = new MockStub($deserialize);
-        foreach ($sequence as $elem) {
-            list($resp, $status) = $elem;
-            $stub->addResponse($resp, $status);
-        }
-        return $stub;
+        $handler = [$this, $method];
+        $callable = function () use ($handler) {
+            list($response, $status) = call_user_func_array($handler, func_get_args())->wait();
+            if ($status->code == \Google\Rpc\Code::OK) {
+                return $response;
+            } else {
+                throw ApiException::createFromStdClass($status);
+            }
+        };
+        return $this->createCallStack($callable, $settings, $options);
     }
 
     public function __call($name, $arguments)
     {
-        list($argument, $metadata, $options) = $arguments;
-        $newArgs = [$name, $argument, $this->deserialize, $metadata, $options];
+        $metadata = [];
+        $options = [];
+        list($request, $optionalArgs) = $arguments;
+
+        if (array_key_exists('headers', $optionalArgs)) {
+            $metadata = $optionalArgs['headers'];
+        }
+
+        $newArgs = [$name, $request, $this->deserialize, $metadata, $optionalArgs];
         return call_user_func_array(array($this, '_simpleRequest'), $newArgs);
     }
 
-    public function methodThatSleeps($argument, $metadata, $options)
+    public function methodThatSleeps($argument, $options)
     {
+        $metadata = [];
         $this->receivedFuncCalls[] = new ReceivedRequest(
             'methodThatSleeps',
             $argument,
@@ -94,8 +85,8 @@ class MockStub
             $metadata,
             $options
         );
-        $timeoutMicros = isset($options['timeout']) ? $options['timeout'] : null;
-        $call = new MockDeadlineExceededUnaryCall($timeoutMicros);
+        $timeoutMillis = isset($options['timeoutMillis']) ? $options['timeoutMillis'] : null;
+        $call = new MockDeadlineExceededUnaryCall($timeoutMillis * 1000);
         $this->callObjects[] = $call;
         return $call;
     }

@@ -1,6 +1,6 @@
 <?php
 /*
- * Copyright 2016, Google Inc.
+ * Copyright 2017, Google Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,29 +29,35 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+namespace Google\GAX\Middleware;
 
-namespace Google\GAX\UnitTests\Mocks;
+use Google\GAX\OperationResponse;
 
-class MockPageStreamingResponse
+/**
+* Middleware that adds long running functionality
+*/
+class LongRunningMiddleware
 {
-    private $nextPageToken;
-    private $resource;
+    /** @var callable */
+    private $nextHandler;
 
-    public static function createPageStreamingResponse($nextPageToken, $resource)
+    /** @var array */
+    private $longRunningDescriptor;
+
+    public function __construct(callable $nextHandler, $longRunningDescriptor)
     {
-        $response = new MockPageStreamingResponse();
-        $response->nextPageToken = $nextPageToken;
-        $response->resource = $resource;
-        return $response;
+        $this->nextHandler = $nextHandler;
+        $this->longRunningDescriptor = $longRunningDescriptor;
     }
 
-    public function getResourcesList()
+    public function __invoke()
     {
-        return $this->resource;
-    }
-
-    public function getNextPageToken()
-    {
-        return $this->nextPageToken;
+        $response = call_user_func_array($this->nextHandler, func_get_args());
+        $name = $response->getName();
+        $client = $this->longRunningDescriptor['operationsClient'];
+        $options = $this->longRunningDescriptor + [
+            'lastProtoResponse' => $response,
+        ];
+        return new OperationResponse($name, $client, $options);
     }
 }

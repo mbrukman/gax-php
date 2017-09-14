@@ -1,6 +1,6 @@
 <?php
 /*
- * Copyright 2016, Google Inc.
+ * Copyright 2017, Google Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -35,16 +35,19 @@ use Google\Auth\ApplicationDefaultCredentials;
 use Google\Auth\CredentialsLoader;
 use Google\Auth\FetchAuthTokenCache;
 use Google\Auth\Cache\MemoryCacheItemPool;
+use Google\GAX\CallSettings;
+use Google\GAX\CallStackTrait;
+use Google\GAX\ValidationTrait;
+use Google\GAX\ValidationException;
 use Grpc\ChannelCredentials;
 
-/**
- * A class that manages credentials for an API object using the Google Auth library
- */
-class GrpcCredentialsHelper
+class GrpcTransport
 {
+    use CallStackTrait;
     use ValidationTrait;
 
-    private $args;
+    protected $grpcStub;
+    private $credentialsCallback;
 
     /**
      * Accepts an optional credentialsLoader argument, to be used instead of using
@@ -86,6 +89,7 @@ class GrpcCredentialsHelper
         $this->validateNotNull($args, [
             'serviceAddress',
             'port',
+            'createGrpcStubFunction',
         ]);
 
         $defaultOptions = [
@@ -117,39 +121,11 @@ class GrpcCredentialsHelper
             );
         }
 
-        $this->args = $args;
-    }
-
-    /**
-     * Creates the callback function to be passed to gRPC for providing the credentials
-     * for a call.
-     *
-     * @return callable
-     */
-    public function createCallCredentialsCallback()
-    {
-        $credentialsLoader = $this->args['credentialsLoader'];
-        $callback = function () use ($credentialsLoader) {
+        $credentialsLoader = $args['credentialsLoader'];
+        $this->credentialsCallback = function () use ($credentialsLoader) {
             $token = $credentialsLoader->fetchAuthToken();
             return ['authorization' => array('Bearer ' . $token['access_token'])];
         };
-        return $callback;
-    }
-
-    /**
-     * Creates a gRPC client stub.
-     *
-     * @param callable $generatedCreateStub
-     *        Function callback which must accept three arguments ($hostname, $opts, $channel)
-     *        and return an instance of the stub of the specific API to call.
-     *        Generally, this should just call the stub's constructor and return
-     *        the instance.
-     * @param array $args Optional parameters that override those set in the GrpcCredentialsHelper constructor
-     * @return \Grpc\BaseStub
-     */
-    public function createStub($generatedCreateStub, $args = [])
-    {
-        $args = array_merge($this->args, $args);
 
         $stubOpts = [];
         // We need to use array_key_exists here because null is a valid value
@@ -173,7 +149,116 @@ class GrpcCredentialsHelper
         if (isset($args['forceNewChannel']) && $args['forceNewChannel']) {
             $stubOpts['force_new'] = true;
         }
-        return $generatedCreateStub($fullAddress, $stubOpts, $channel);
+        $this->grpcStub = call_user_func_array(
+            $args['createGrpcStubFunction'],
+            [$fullAddress, $stubOpts, $channel]
+        );
+    }
+
+    /**
+     * @param string $methodName the method name to return a callable for.
+     * @param \Google\GAX\CallSettings $settings the call settings to use for this call.
+     * @param array $options {
+     *     Optional.
+     *     @type \Google\GAX\PageStreamingDescriptor $pageStreamingDescriptor
+     *           the descriptor used for page-streaming.
+     *     @type \Google\GAX\AgentHeaderDescriptor $headerDescriptor
+     *           the descriptor used for creating GAPIC header.
+     * }
+     *
+     * @throws \Google\GAX\ValidationException
+     * @return callable
+     */
+    public function createApiCall($methodName, CallSettings $settings, $options = [])
+    {
+        $this->validateApiCallSettings($settings, $options);
+
+        $callClass = UnaryCall::class;
+        if (array_key_exists('grpcStreamingDescriptor', $options)) {
+            $grpcStreamingDescriptor = $options['grpcStreamingDescriptor'];
+            switch ($grpcStreamingDescriptor['grpcStreamingType']) {
+                case 'ClientStreaming':
+                    $callClass = ClientStream::class;
+                    break;
+                case 'ServerStreaming':
+                    $callClass = ServerStream::class;
+                    break;
+                case 'BidiStreaming':
+                    $callClass = BidiStream::class;
+                    break;
+                default:
+                    throw new ValidationException('Unexpected gRPC streaming type: ' .
+                        $grpcStreamingDescriptor['grpcStreamingType']);
+            }
+        }
+
+        $handler = function () use ($methodName, $callClass) {
+            $args = func_get_args();
+            $optionalArgs = array_pop($args);
+            $args = array_merge($args, $this->constructGrpcArgs($optionalArgs));
+            $innerCall = call_user_func_array([$this->grpcStub, $methodName], $args);
+            return new $callClass($innerCall);
+        };
+
+        // Call the sync method "wait" if this is not a gRPC call
+        if (array_key_exists('grpcStreamingDescriptor', $options)) {
+            $callable = function () use ($handler) {
+                return call_user_func_array($handler, func_get_args());
+            };
+        } else {
+            $callable = function () use ($handler) {
+                return call_user_func_array($handler, func_get_args())->wait();
+            };
+        }
+
+        return $this->createCallStack($callable, $settings, $options);
+    }
+
+    protected function constructGrpcArgs($optionalArgs = [])
+    {
+        $metadata = [];
+        $options = [];
+        if (array_key_exists('timeoutMillis', $optionalArgs)) {
+            $options['timeout'] = $optionalArgs['timeoutMillis'] * 1000;
+        }
+        if (array_key_exists('headers', $optionalArgs)) {
+            $metadata = $optionalArgs['headers'];
+        }
+        if (array_key_exists('credentialsLoader', $optionalArgs)) {
+            $credentialsLoader = $optionalArgs['credentialsLoader'];
+            $callback = function () use ($credentialsLoader) {
+                $token = $credentialsLoader->fetchAuthToken();
+                return ['authorization' => array('Bearer ' . $token['access_token'])];
+            };
+            $options['call_credentials_callback'] = $callback;
+        }
+        if (empty($options['call_credentials_callback'])) {
+            $options['call_credentials_callback'] = $this->credentialsCallback;
+        }
+        return [$metadata, $options];
+    }
+
+    private function validateApiCallSettings(CallSettings $settings, $options)
+    {
+        $retrySettings = $settings->getRetrySettings();
+        $isGrpcStreaming = array_key_exists('grpcStreamingDescriptor', $options);
+        if ($isGrpcStreaming) {
+            if (!is_null($retrySettings) && $retrySettings->retriesEnabled()) {
+                throw new ValidationException(
+                    'grpcStreamingDescriptor not compatible with retry settings'
+                );
+            }
+            if (array_key_exists('pageStreamingDescriptor', $options)) {
+                throw new ValidationException(
+                    'grpcStreamingDescriptor not compatible with pageStreamingDescriptor'
+                );
+            }
+            if (array_key_exists('longRunningDescriptor', $options)) {
+                throw new ValidationException(
+                    'grpcStreamingDescriptor not compatible with longRunningDescriptor'
+                );
+            }
+        }
     }
 
     /**

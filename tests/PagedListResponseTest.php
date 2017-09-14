@@ -33,28 +33,30 @@ namespace Google\GAX\UnitTests;
 
 use Google\GAX\PagedListResponse;
 use Google\GAX\PageStreamingDescriptor;
-use Google\GAX\UnitTests\Mocks\MockStub;
-use Google\GAX\UnitTests\Mocks\MockPageStreamingRequest;
-use Google\GAX\UnitTests\Mocks\MockPageStreamingResponse;
+use Google\GAX\UnitTests\Mocks\MockRequest;
+use Google\GAX\UnitTests\Mocks\MockResponse;
 use PHPUnit\Framework\TestCase;
 
 class PagedListResponseTest extends TestCase
 {
+    use TestTrait;
+
     public function testNextPageToken()
     {
-        $mockRequest = MockPageStreamingRequest::createPageStreamingRequest('mockToken');
+        $mockRequest = $this->createMockRequest('mockToken');
+
+        $mockResponse = $this->createMockResponse('nextPageToken1', ['resource1']);
+
         $descriptor = PageStreamingDescriptor::createFromFields([
             'requestPageTokenField' => 'pageToken',
             'responsePageTokenField' => 'nextPageToken',
             'resourceField' => 'resourcesList'
         ]);
-        $response = MockPageStreamingResponse::createPageStreamingResponse('nextPageToken1', ['resource1']);
-        $stub = MockStub::create($response);
-        $mockApiCall = function () use ($stub) {
-            list($response, $status) =
-                call_user_func_array(array($stub, 'takeAction'), func_get_args())->wait();
-            return $response;
+
+        $mockApiCall = function () use ($mockResponse) {
+            return $mockResponse;
         };
+
         $pageAccessor = new PagedListResponse([$mockRequest, [], []], $mockApiCall, $descriptor);
         $page = $pageAccessor->getPage();
         $this->assertEquals($page->getNextPageToken(), 'nextPageToken1');

@@ -32,44 +32,34 @@
 
 namespace Google\GAX\UnitTests\Mocks;
 
-use Google\GAX\Testing\MockStubTrait;
-use InvalidArgumentException;
-
-class MockServerStreamingStub
+class MockRequest
 {
-    use MockStubTrait;
+    private $pageToken;
+    private $pageSize;
 
-    private $deserialize;
-
-    public function __construct($deserialize = null)
+    public function __construct($pageToken, $pageSize = null)
     {
-        $this->deserialize = $deserialize;
+        $this->pageToken = $pageToken;
+        $this->pageSize = $pageSize;
     }
 
-    /**
-     * Creates a sequence such that the responses are returned in order.
-     * @param mixed[] $sequence
-     * @param $finalStatus
-     * @param callable $deserialize
-     * @return MockServerStreamingStub
-     */
-    public static function createWithResponseSequence($sequence, $finalStatus = null, $deserialize = null)
+    public function getPageToken()
     {
-        if (count($sequence) == 0) {
-            throw new InvalidArgumentException("createResponseSequence: need at least 1 response");
-        }
-        $stub = new MockServerStreamingStub($deserialize);
-        foreach ($sequence as $resp) {
-            $stub->addResponse($resp, null);
-        }
-        $stub->setStreamingStatus($finalStatus);
-        return $stub;
+        return $this->pageToken;
     }
 
-    public function __call($name, $arguments)
+    public function getPageSize()
     {
-        list($argument, $metadata, $options) = $arguments;
-        $newArgs = [$name, $argument, $this->deserialize, $metadata, $options];
-        return call_user_func_array(array($this, '_serverStreamRequest'), $newArgs);
+        return $this->pageSize;
+    }
+
+    public function setPageSize($pageSize)
+    {
+        $this->pageSize = $pageSize;
+    }
+
+    public function setPageToken($pageToken)
+    {
+        $this->pageToken = $pageToken;
     }
 }

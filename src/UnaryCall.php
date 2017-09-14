@@ -1,6 +1,6 @@
 <?php
 /*
- * Copyright 2016, Google Inc.
+ * Copyright 2017, Google Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,39 +29,26 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+namespace Google\GAX;
 
-namespace Google\GAX\UnitTests\Mocks;
+use Google\Rpc\Code;
 
-use Google\Auth\FetchAuthTokenInterface;
-
-class MockCredentialsLoader implements FetchAuthTokenInterface
+class UnaryCall
 {
-    private $tokens;
-    private $index = -1;
+    private $innerUnaryCall;
 
-    public function __construct($scopes, $tokens)
+    public function __construct(\Grpc\UnaryCall $innerUnaryCall)
     {
-        $this->scopes = $scopes;
-        $this->tokens = $tokens;
+        $this->innerUnaryCall = $innerUnaryCall;
     }
 
-    public function fetchAuthToken(callable $httpHandler = null)
+    public function wait()
     {
-        $this->index = ($this->index + 1) % count($this->tokens);
-        return $this->tokens[$this->index];
-    }
-
-    public function getCacheKey()
-    {
-        return 'accessTokenCacheKey';
-    }
-
-    public function getLastReceivedToken()
-    {
-        if ($this->index == -1) {
-            return null;
+        list($response, $status) = $this->innerUnaryCall->wait();
+        if ($status->code == Code::OK) {
+            return $response;
         } else {
-            return $this->tokens[$this->index];
+            throw ApiException::createFromStdClass($status);
         }
     }
 }

@@ -32,22 +32,50 @@
 
 namespace Google\GAX\UnitTests\Mocks;
 
-use Google\GAX\GrpcCredentialsHelper;
+use Google\GAX\Testing\MockStatus;
+use Google\GAX\UnaryCallInterface;
+use Google\Rpc\Code;
 
-class MockGrpcCredentialsHelper extends GrpcCredentialsHelper
+/**
+ * The MockUnaryCall class is used to mock out the \Grpc\UnaryCall class
+ * (https://github.com/grpc/grpc/blob/master/src/php/lib/Grpc/UnaryCall.php)
+ *
+ * The MockUnaryCall object is constructed with a response object, an optional deserialize
+ * method, and an optional status. The response object and status are returned immediately from the
+ * wait() method.
+ */
+class MockUnaryCall extends \Grpc\UnaryCall
 {
-    protected function getADCCredentials($scopes)
+    use SerializationTrait;
+
+    private $response;
+    private $status;
+
+    /**
+     * MockUnaryCall constructor.
+     * @param \Google\Protobuf\Internal\Message $response The response object.
+     * @param callable|null $deserialize An optional deserialize method for the response object.
+     * @param MockStatus|null $status An optional status object. If set to null, a status of OK is used.
+     */
+    public function __construct($response, $deserialize = null, $status = null)
     {
-        return new MockCredentialsLoader($scopes, [
-            [
-                'access_token' => 'adcAccessToken',
-                'expires_in' => '100',
-            ],
-        ]);
+        $this->response = $response;
+        $this->deserialize = $deserialize;
+        if (is_null($status)) {
+            $status = new MockStatus(Code::OK);
+        }
+        $this->status = $status;
     }
 
-    protected function createSslChannelCredentials()
+    /**
+     * Immediately return the preset response object and status.
+     * @return array The response object and status.
+     */
+    public function wait()
     {
-        return "DummySslCreds";
+        return [
+            $this->deserializeMessage($this->response, $this->deserialize),
+            $this->status,
+        ];
     }
 }
