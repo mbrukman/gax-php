@@ -1,6 +1,6 @@
 <?php
 /*
- * Copyright 2016, Google Inc.
+ * Copyright 2017, Google Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,13 +29,50 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 namespace Google\GAX;
 
-trait CallHelperTrait
+use Google\Protobuf\Internal\Message;
+use GuzzleHttp\Psr7\Request;
+
+class RequestBuilder
 {
-    private static function callWithoutRequest($callable, $params)
+    public function __construct($baseUri, $clientConfigPath)
     {
-        array_shift($params);
-        return call_user_func_array($callable, $params);
+        $this->baseUri = $baseUri;
+        $this->clientConfig = $this->loadClientConfig($clientConfigPath);
+    }
+
+    public function build($path, Message $message)
+    {
+        list($interface, $method) = explode('/', $path);
+
+        if (isset($this->clientConfig['interfaces'][$interface]['methods'][$method])) {
+            $template = new PathTemplate(
+                $this->clientConfig['interfaces'][$interface]['methods'][$method]['uri']
+            );
+
+            // @todo need to determine how to fetch the placeholder
+            return new Request(
+                $this->clientConfig['interfaces'][$interface]['methods'][$method]['method'],
+                sprintf(
+                    'https://%s/%s',
+                    $this->baseUri,
+                    $template->render([])
+                ),
+                ['Content-Type' => 'application/json'],
+                $message->serializeToJsonString()
+            );
+        }
+
+        throw new \Exception('Unable to build request.');
+    }
+
+    private function loadClientConfig($clientConfigPath)
+    {
+        return json_decode(
+            file_get_contents($clientConfigPath, true),
+            true
+        );
     }
 }

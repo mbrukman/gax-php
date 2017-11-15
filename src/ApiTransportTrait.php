@@ -29,26 +29,57 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
+
 namespace Google\GAX;
 
-use Google\Rpc\Code;
+use Google\Auth\ApplicationDefaultCredentials;
+use Google\Auth\Cache\MemoryCacheItemPool;
+use Google\Auth\CredentialsLoader;
+use Google\Auth\FetchAuthTokenCache;
+use Google\GAX\HttpHandler\Guzzle6HttpHandler;
 
-class UnaryCall
+trait ApiTransportTrait
 {
-    private $innerUnaryCall;
+    use ArrayTrait;
 
-    public function __construct(\Grpc\UnaryCall $innerUnaryCall)
+    private $times = 0;
+
+    private function setCommonDefaults(array $options)
     {
-        $this->innerUnaryCall = $innerUnaryCall;
+        $options += [
+            'enableCaching' => true,
+            'authCache' => new MemoryCacheItemPool(),
+            'authHttpHandler' => new Guzzle6HttpHandler() // @todo use factory
+        ];
+
+        if (empty($options['credentialsLoader'])) {
+            $this->validateNotNull($options, ['scopes']);
+            $options['credentialsLoader'] = $this->getADCCredentials(
+                $options['scopes'],
+                $options['authHttpHandler']
+            );
+        }
+
+        if ($options['enableCaching']) {
+            $options['credentialsLoader'] = new FetchAuthTokenCache(
+                $options['credentialsLoader'],
+                $this->pluck('authCacheOptions', $options, false),
+                $options['authCache']
+            );
+        }
+
+        return $options;
     }
 
-    public function wait()
+    /**
+     * Gets credentials from ADC. This exists to allow overriding in unit tests.
+     *
+     * @param string[] $scopes
+     * @param callable $httpHandler
+     * @return CredentialsLoader
+     */
+    protected function getADCCredentials(array $scopes, callable $httpHandler)
     {
-        list($response, $status) = $this->innerUnaryCall->wait();
-        if ($status->code == Code::OK) {
-            return $response;
-        } else {
-            throw ApiException::createFromStdClass($status);
-        }
+        return ApplicationDefaultCredentials::getCredentials($scopes, $httpHandler);
     }
 }
